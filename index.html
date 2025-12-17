@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reserva de Salas - Vanzolini</title>
+
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    
+    <?!= include('styles'); ?>
+</head>
+<body>
+
+    <div id="app-container">
+
+        <header id="app-header">
+            <div class="header-left">
+                <button id="btn-prev-day" class="nav-button">&lt;</button>
+                <button id="btn-next-day" class="nav-button">&gt;</button>
+                <button id="btn-today" class="nav-button">Today</button>
+                <input type="date" id="date-picker">
+            </div>
+            <div class="header-right">
+                <button id="btn-new-reservation" class="btn-primary">New Reservation</button>
+            </div>
+        </header>
+
+        <div id="main-wrapper">
+
+            <aside id="app-sidebar">
+                <div id="mini-calendar">
+                    </div>
+                
+                <div class="sidebar-section" id="room-list-container">
+                    <h3>Rooms</h3>
+                    <ul id="room-list">
+                        </ul>
+                </div>
+                
+                <div class="sidebar-section" id="filter-container">
+                    <h3>Filter Events</h3>
+                    <input type="text" id="filter-subject" placeholder="Subject...">
+                    <input type="text" id="filter-user" placeholder="Requester...">
+                    <div class="filter-buttons">
+                        <button id="btn-filter-clear" class="btn-secondary">Clear</button>
+                        <button id="btn-filter-search" class="btn-primary">Search</button>
+                    </div>
+                </div>
+                
+                <nav class="sidebar-nav">
+                    <ul>
+                        <li><a href="#" id="nav-list-reservations">Reservations List</a></li>
+                    </ul>
+                </nav>
+            </aside>
+
+            <main id="app-main-content">
+                <div id="timeline-header-container">
+                    </div>
+                <div id="calendar-grid-container">
+                    <div id="current-time-line"></div>
+                    
+                    </div>
+            </main>
+
+        </div> </div> <div id="modal-new-reservation" class="modal-backdrop">
+        <div class="modal-content">
+            <h3>New Reservation</h3>
+            <form id="form-new-reservation">
+                <input type="hidden" id="modal-reservation-id" name="modal-reservation-id">
+
+                <input type="hidden" id="modal-email" name="modal-email">
+
+                <label for="modal-requester-search">Name (Who reserves):</label>
+                <div class="people-picker-container">
+                    <span class="material-icons person-icon">person</span>
+                    <input type="text" id="modal-requester-search" autocomplete="off">
+                    <div id="people-picker-results">
+                        </div>
+                </div>
+                <input type="hidden" id="modal-requester" name="modal-requester">
+                
+                <label for="modal-subject">Subject:</label>
+                <input type="text" id="modal-subject" name="modal-subject" required>
+                
+                <label for="modal-room">Room:</label>
+                <select id="modal-room" name="modal-room" required>
+                    </select>
+                
+                <label for="modal-participants">Number of Participants</label>
+                <input type="number" id="modal-participants" name="modal-participants">
+
+                <label for="participants-search">Add Participants:</label>
+                <div id="participants-pills-container">
+                    </div>
+                <div class="people-picker-container">
+                    <span class="material-icons person-icon">group_add</span>
+                    <input type="text" id="participants-search" autocomplete="off" placeholder="Search with name or email...">
+                    <div id="participants-results">
+                        </div>
+                </div>
+
+                <input type="hidden" id="hidden-participants-emails" name="hidden-participants-emails">
+
+                <label for="modal-event-type">Event Type:</label>
+                <select id="modal-event-type" name="modal-event-type" required>
+                  <option value="Internal Meeting" selected>Internal Meeting</option>
+                  <option value="External Meeting">External Meeting</option>
+                  <option value="Maintenance">Maintenance</option>
+                </select>
+                
+                <label for="modal-date">Date:</label>
+                <input type="date" id="modal-date" name="modal-date" required>
+                
+                <label for="modal-start-time">Start:</label>
+                <input type="time" id="modal-start-time" name="modal-start-time" step="600" required>
+                
+                <label for="modal-end-time">End:</label>
+                <input type="time" id="modal-end-time" name="modal-end-time" step="600" required>
+
+                <label for="modal-details">Details (Optional)</label>
+                <textarea id="modal-details" name="modal-details" rows="3"></textarea>
+                
+                <div class="modal-buttons">
+                    <button type="button" id="btn-modal-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Confirm Reservation</button>
+                </div>
+            </form>
+            <div id="modal-status-message"></div>
+        </div>
+    </div>
+
+    <div id="modal-details" class="modal-backdrop">
+        <div class="modal-content">
+            <h3 id="details-subject">Reservation Details</h3>
+            
+            <p><strong>Room:</strong> <span id="details-room"/></p>
+            <p><strong>Schedule:</strong> <span id="details-schedule"/></p>
+            <p><strong>Requester:</strong> <span id="details-requester"/></p>
+            <p><strong>E-mail:</strong> <span id="details-email"/></p>
+
+            <p><strong>Number of Participants:</strong> <span id="details-participants"/></p>
+            <p><strong>Event Type:</strong> <span id="details-event-type"/></p>
+            <p><strong>Participants (E-mails):</strong></p>
+            <div id="details-participants-emails" class="details-participant-list">
+              </div>
+
+            <p><strong>Detalhes:</strong> <span id="details-details"/></p>
+            
+            <div class="modal-buttons">
+                <button type="button" id="btn-details-delete" class="btn-danger">Excluir</button>
+                <button type="button" id="btn-details-edit" class="btn-primary">Editar</button>
+                <button type="button" id="btn-details-close" class="btn-secondary">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <?!= include('javascript'); ?>
+</body>
+</html>
