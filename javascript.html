@@ -1,0 +1,657 @@
+<script>
+
+// ===================================================================
+// 1. GRID CONSTANTS AND SETTINGS
+// ===================================================================
+
+document.addEventListener('DOMContentLoaded', initializeApp);
+
+// Timeline Configurations
+const PIXELS_PER_HOUR = 80; // 1 hour width (Total: 2400px)
+const START_HOUR = 6;        // Start of grid (00:00)
+const END_HOUR = 23;         // End of grid (24:00)
+const PIXELS_PER_MINUTE = PIXELS_PER_HOUR / 60;
+const SIDEBAR_WIDTH = 150;
+
+// Storage of the main DOM elements
+let DOM = {};
+let currentParticipants = [];
+let miniCalendarInstance = null;
+
+// ===================================================================
+// 2. INITIALIZATION AND EVENT LISTENERS
+// ===================================================================
+
+function initializeApp() {
+    console.log("Reservation Room App Initializing...");
+    cacheDomElements();
+    setupEventListeners();
+    
+    const today = getLocalISODate(new Date());
+    DOM.datePicker.value = today;
+    
+    renderTimelineHeader();
+    loadRooms();
+    setSheetUrl();
+    initializeMiniCalendar();
+    
+    updateCurrentTimeLine();
+    setInterval(updateCurrentTimeLine, 60000);
+}
+
+function cacheDomElements() {
+    // Grid
+    DOM.datePicker = document.getElementById('date-picker');
+    DOM.roomList = document.getElementById('room-list');
+    DOM.timelineHeader = document.getElementById('timeline-header-container');
+    DOM.gridContainer = document.getElementById('calendar-grid-container');
+    DOM.currentTimeLine = document.getElementById('current-time-line');
+    
+    // Buttons
+    DOM.btnPrevDay = document.getElementById('btn-prev-day');
+    DOM.btnNextDay = document.getElementById('btn-next-day');
+    DOM.btnToday = document.getElementById('btn-today');
+    DOM.btnNewReservation = document.getElementById('btn-new-reservation');
+    
+    // Reservation Modal
+    DOM.modal = document.getElementById('modal-new-reservation');
+    DOM.modalForm = document.getElementById('form-new-reservation');
+    DOM.btnModalCancel = document.getElementById('btn-modal-cancel');
+    DOM.modalStatus = document.getElementById('modal-status-message');
+    DOM.modalRoomSelect = document.getElementById('modal-room');
+    DOM.modalDate = document.getElementById('modal-date');
+    DOM.modalReservationId = document.getElementById('modal-reservation-id');
+    
+    // People Picker (Requester)
+    DOM.requesterSearch = document.getElementById('modal-requester-search');
+    DOM.requesterHidden = document.getElementById('modal-requester');
+    DOM.requesterResults = document.getElementById('people-picker-results');
+    DOM.modalEmail = document.getElementById('modal-email');
+    DOM.peoplePickerContainer = document.querySelector('.people-picker-container');
+    
+    // People Picker (Participants)
+    DOM.participantsPillsContainer = document.getElementById('participants-pills-container');
+    DOM.participantsSearch = document.getElementById('participants-search');
+    DOM.participantsResults = document.getElementById('participants-results');
+    DOM.hiddenParticipants = document.getElementById('hidden-participants-emails');
+    
+    // Details Modal
+    DOM.modalDetails = document.getElementById('modal-details');
+    DOM.btnDetailsClose = document.getElementById('btn-details-close');
+    DOM.btnDetailsEdit = document.getElementById('btn-details-edit');
+    DOM.btnDetailsDelete = document.getElementById('btn-details-delete');
+    DOM.detailsSubject = document.getElementById('details-subject');
+    DOM.detailsRoom = document.getElementById('details-room');
+    DOM.detailsSchedule = document.getElementById('details-schedule');
+    DOM.detailsRequester = document.getElementById('details-requester');
+    DOM.detailsEmail = document.getElementById('details-email');
+    DOM.detailsParticipants = document.getElementById('details-participants');
+    DOM.detailsEventType = document.getElementById('details-event-type');
+    DOM.detailsParticipantsEmails = document.getElementById('details-participants-emails');
+    DOM.detailsDetails = document.getElementById('details-details');
+
+    // Sidebar
+    DOM.navReservations = document.getElementById('nav-list-reservations');
+    DOM.filterSubject = document.getElementById('filter-subject');
+    DOM.filterUser = document.getElementById('filter-user');
+    DOM.btnFilterClear = document.getElementById('btn-filter-clear');
+    DOM.btnFilterSearch = document.getElementById('btn-filter-search');
+}
+
+function setupEventListeners() {
+    DOM.datePicker.addEventListener('change', () => {
+      miniCalendarInstance.setDate(DOM.datePicker.value);
+      loadData();
+    });
+    DOM.roomList.addEventListener('change', loadData);
+
+    DOM.btnPrevDay.addEventListener('click', changeDay.bind(null, -1));
+    DOM.btnNextDay.addEventListener('click', changeDay.bind(null, 1));
+    DOM.btnToday.addEventListener('click', changeDay.bind(null, 0));
+    
+    DOM.btnNewReservation.addEventListener('click', openModal);
+    DOM.btnModalCancel.addEventListener('click', closeModal);
+    DOM.modalForm.addEventListener('submit', handleReservationSubmit);
+    
+    const modalInputs = DOM.modalForm.querySelectorAll('input, select');
+    modalInputs.forEach(input => {
+        input.addEventListener('input', () => showModalStatus(null));
+    });
+
+    // People Picker
+    DOM.requesterSearch.addEventListener('keyup', (e) => handleContactSearch(e, 'requester'));
+    DOM.participantsSearch.addEventListener('keyup', (e) => handleContactSearch(e, 'participant'));
+    document.addEventListener('click', (e) => {
+        if (DOM.peoplePickerContainer && !DOM.peoplePickerContainer.contains(e.target)) {
+            DOM.requesterResults.style.display = 'none';
+        }
+        const participantsPicker = DOM.participantsSearch.parentElement;
+        if (participantsPicker && !participantsPicker.contains(e.target)) {
+          DOM.participantsResults.style.display = 'none';
+        }
+    });
+    
+    // Details Modal
+    DOM.btnDetailsClose.addEventListener('click', closeDetailsModal);
+    DOM.btnDetailsEdit.addEventListener('click', handleEditClick);
+    DOM.btnDetailsDelete.addEventListener('click', handleDeleteClick);
+
+    // Filters
+    DOM.btnFilterSearch.addEventListener('click', loadData);
+    DOM.btnFilterClear.addEventListener('click', handleFilterClear);
+    DOM.filterSubject.addEventListener('keyup', (e) => { if (e.key === 'Enter') loadData(); });
+    DOM.filterUser.addEventListener('keyup', (e) => { if (e.key === 'Enter') loadData(); });
+}
+
+/**
+ * Initialize the mini-calendar flatpickr in the sidebar
+ */
+function initializeMiniCalendar() {
+    miniCalendarInstance = flatpickr("#mini-calendar", {
+        inline: true,
+        dateFormat: "Y-m-d",
+        defaultDate: DOM.datePicker.value,
+
+        onChange: function(selectedDates, dateStr, instance) {
+            if (DOM.datePicker.value !== dateStr) {
+                DOM.datePicker.value = dateStr;
+                loadData();
+            }
+        }
+    });
+}
+
+// ===================================================================
+// 3. DATA LOADING AND RENDERING
+// ===================================================================
+
+function setSheetUrl() { 
+    google.script.run
+        .withSuccessHandler(url => {
+            DOM.navReservations.href = url;
+            DOM.navReservations.target = "_blank";
+        })
+        .getSheetUrl();
+}
+
+function loadRooms() { 
+    showLoading(DOM.roomList);
+    google.script.run
+        .withSuccessHandler(onRoomsLoaded)
+        .withFailureHandler(showError.bind(null, DOM.roomList))
+        .getRoomsList();
+}
+
+function onRoomsLoaded(rooms) { 
+    DOM.roomList.innerHTML = '';
+    DOM.modalRoomSelect.innerHTML = '';
+    if (!rooms || rooms.length === 0) {
+        DOM.roomList.innerHTML = '<li>No rooms found.</li>';
+        return;
+    }
+    rooms.forEach((room, index) => {
+        const id = `room-${index}`;
+        const li = document.createElement('li');
+        li.innerHTML = `<input type="checkbox" id="${id}" value="${room}" checked><label for="${id}">${room}</label>`;
+        DOM.roomList.appendChild(li);
+        const option = document.createElement('option');
+        option.value = room;
+        option.textContent = room;
+        DOM.modalRoomSelect.appendChild(option);
+    });
+    loadData();
+}
+
+function loadData() {
+    const filters = {
+        data: DOM.datePicker.value,
+        salas: getSelectedRooms(),
+        assunto: DOM.filterSubject.value,
+        requisitante: DOM.filterUser.value
+    };
+    
+    showLoading(DOM.gridContainer);
+    
+    google.script.run
+        .withSuccessHandler(renderReservations)
+        .withFailureHandler(showError.bind(null, DOM.gridContainer))
+        .getReservationsByDate(filters);
+}
+
+function renderTimelineHeader() {
+    DOM.timelineHeader.innerHTML = '';
+    let totalWidth = 0;
+
+    const spacer = document.createElement('div');
+    spacer.className = 'time-slot-header-spacer';
+    spacer.style.width = SIDEBAR_WIDTH + 'px';
+    spacer.style.display = 'inline-block';
+    spacer.style.flexShrink = '0';
+    DOM.timelineHeader.appendChild(spacer);
+    totalWidth += SIDEBAR_WIDTH;
+
+    for (let hour = START_HOUR; hour < END_HOUR; hour++) {
+        const slot = document.createElement('div');
+        slot.className = 'time-slot-header';
+        slot.style.width = PIXELS_PER_HOUR + 'px'; 
+        slot.textContent = `${String(hour).padStart(2, '0')}:00`;
+        DOM.timelineHeader.appendChild(slot);
+        totalWidth += PIXELS_PER_HOUR;
+    }
+    DOM.timelineHeader.style.minWidth = totalWidth + 'px';
+}
+
+function renderReservations(reservations) {
+    DOM.gridContainer.innerHTML = '';
+    DOM.gridContainer.appendChild(DOM.currentTimeLine);
+    
+    const selectedRooms = getSelectedRooms();
+    if (selectedRooms.length === 0) {
+        DOM.gridContainer.innerHTML = '<p style="text-align: center; padding: 20px;">Select a room to view the schedule.</p>';
+        return;
+    }
+
+    const totalWidth = (END_HOUR - START_HOUR) * PIXELS_PER_HOUR;
+
+    selectedRooms.forEach(roomName => {
+        const roomRow = document.createElement('div');
+        roomRow.className = 'room-row';
+        
+        roomRow.style.minWidth = (totalWidth + SIDEBAR_WIDTH) + 'px';
+
+        const roomTitle = document.createElement('div');
+        roomTitle.className = 'room-title';
+        roomTitle.textContent = roomName;
+        roomRow.appendChild(roomTitle);
+        
+        const roomTimeline = document.createElement('div');
+        roomTimeline.className = 'room-timeline';
+        roomTimeline.style.minWidth = totalWidth + 'px';
+        
+        const roomReservations = reservations.filter(r => r.room === roomName);
+        
+        roomReservations.forEach(reservation => {
+            const block = createReservationBlock(reservation);
+            roomTimeline.appendChild(block);
+        });
+        
+        roomRow.appendChild(roomTimeline);
+        DOM.gridContainer.appendChild(roomRow);
+    });
+}
+
+function createReservationBlock(reservation) {
+    const block = document.createElement('div');
+    block.className = 'reservation-block';
+    
+    const start = new Date(reservation.startISO);
+    const end = new Date(reservation.endISO);
+    const startHour = start.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const endHour = end.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const formattedHour = `${startHour} - ${endHour}`;
+
+    block.innerHTML = `
+        <h4>${reservation.subject}</h4>
+        <p>${reservation.requester}</p> 
+        <p class="block-time">${formattedHour}</p>
+    `;
+    
+    // Calculates position and width in PIXELS
+    const left = calculatePixelOffset(reservation.startISO);
+    const width = calculatePixelWidth(reservation.startISO, reservation.endISO);
+
+    block.style.left = `${left}px`;
+    block.style.width = `${width}px`;
+
+    block.dataset.reservation = JSON.stringify(reservation); 
+    
+    block.addEventListener('click', () => {
+        openDetailsModal(reservation, formattedHour);
+    });
+    
+    return block;
+}
+
+/**
+ * Clears the filter fields in the sidebar and reloads the data.
+ */
+function handleFilterClear() {
+    DOM.filterSubject.value = "";
+    DOM.filterUser.value = "";
+    loadData();
+}
+
+// ===================================================================
+// 4. MODAL LOGIC (NEW RESERVE / EDITION)
+// ===================================================================
+
+function openModal() {
+    DOM.modalForm.reset();
+    DOM.modalReservationId.value = ""; // Clear the ID
+    DOM.requesterHidden.value = ""; // Clear the hidden requester
+    DOM.requesterSearch.value = ""; // Clear the search field
+    DOM.modalDate.value = DOM.datePicker.value;
+    showModalStatus(null);
+    currentParticipants = [];
+    renderParticipantPills();
+    DOM.modal.classList.add('modal-open');
+}
+
+function closeModal() {
+    DOM.modal.classList.remove('modal-open');
+}
+
+function handleReservationSubmit(e) {
+    e.preventDefault();
+
+    DOM.requesterHidden.value = DOM.requesterSearch.value;
+    
+    const formData = new FormData(DOM.modalForm);
+    const reservationData = {
+        email: formData.get('modal-email'),
+        requester: formData.get('modal-requester'),
+        subject: formData.get('modal-subject'),
+        room: formData.get('modal-room'),
+        participants: formData.get('modal-participants'),
+        eventType: formData.get('modal-event-type'),
+        date: formData.get('modal-date'),
+        start: formData.get('modal-start-time'),
+        end: formData.get('modal-end-time'),
+        details: formData.get('modal-details'),
+        participantsEmails: formData.get('hidden-participants-emails')
+    };
+    
+    const dateBase = '1970-01-01T';
+    const startDate = new Date(dateBase + reservationData.start);
+    const endDate = new Date(dateBase + reservationData.end);
+
+    if (endDate <= startDate) {
+        showModalStatus("<strong>Error:</strong> The end time must be after the start time.", 'error');
+        return;
+    }
+    
+    showModalStatus("Processing...", 'loading');
+    
+    const id = parseInt(formData.get('modal-reservation-id'));
+    
+    if (id > 0) {
+        google.script.run
+            .withSuccessHandler(onReservationSuccess)
+            .withFailureHandler(onReservationFailure)
+            .updateReserva(id, reservationData);
+    } else {
+        google.script.run
+            .withSuccessHandler(onReservationSuccess)
+            .withFailureHandler(onReservationFailure)
+            .processarReserva(reservationData);
+    }
+}
+
+function onReservationSuccess(successMessage) {
+    showModalStatus(successMessage, 'success');
+    loadData();
+    
+    setTimeout(() => {
+        closeModal();
+    }, 2000);
+}
+
+function onReservationFailure(error) {
+    showModalStatus(`<strong>Error:</strong> ${error.message}`, 'error');
+}
+
+// ===================================================================
+// 5. "PEOPLE PICKER" LOGIC
+// ===================================================================
+
+function handleContactSearch(e, type) { 
+    const query = e.target.value;
+    if (query.length < 3) {
+      if (type === 'requester') DOM.requesterResults.style.display = 'none';
+      if (type === 'participant') DOM.participantsResults.style.display = 'none';
+      return;
+    }
+    const callback = (type === 'requester') ? showContactResults : showParticipantResults;
+    google.script.run
+        .withSuccessHandler(callback)
+        .searchContacts(query);
+}
+
+function showContactResults(results) { 
+    DOM.requesterResults.innerHTML = '';
+    if (results.length === 0) {
+        DOM.requesterResults.style.display = 'none';
+        return;
+    }
+    results.forEach(contact => {
+        const item = document.createElement('div');
+        item.className = 'people-picker-item';
+        item.innerHTML = `<div class="name">${contact.name}</div><div class="email">${contact.email}</div>`;
+        item.addEventListener('click', () => { selectContact(contact); });
+        DOM.requesterResults.appendChild(item);
+    });
+    DOM.requesterResults.style.display = 'block';
+}
+
+function showParticipantResults(results) { 
+    DOM.participantsResults.innerHTML = ''; 
+    if (results.length === 0) {
+        DOM.participantsResults.style.display = 'none';
+        return;
+    }
+    results.forEach(contact => {
+        const item = document.createElement('div');
+        item.className = 'people-picker-item';
+        item.innerHTML = `<div class="name">${contact.name}</div><div class="email">${contact.email}</div>`;
+        item.addEventListener('click', () => { selectParticipant(contact); });
+        DOM.participantsResults.appendChild(item);
+    });
+    DOM.participantsResults.style.display = 'block';
+}
+
+function selectParticipant(contact) { 
+    if (!currentParticipants.includes(contact.email)) {
+        currentParticipants.push(contact.email);
+    }
+    renderParticipantPills();
+    DOM.participantsSearch.value = '';
+    DOM.participantsResults.style.display = 'none';
+}
+
+function removeParticipant(email) { 
+    currentParticipants = currentParticipants.filter(p => p !== email);
+    renderParticipantPills();
+}
+
+function renderParticipantPills() { 
+    DOM.participantsPillsContainer.innerHTML = '';
+    currentParticipants.forEach(email => {
+        const pill = document.createElement('div');
+        pill.className = 'pill';
+        const name = email.split('@')[0];
+        pill.innerHTML = `<span>${name}</span><span class="pill-remove" onclick="removeParticipant('${email}')">&times;</span>`;
+        DOM.participantsPillsContainer.appendChild(pill);
+    });
+    DOM.hiddenParticipants.value = currentParticipants.join(';');
+}
+
+function selectContact(contact) { 
+    DOM.requesterSearch.value = contact.name;
+    DOM.modalEmail.value = contact.email;
+    DOM.requesterHidden.value = contact.name;
+    DOM.requesterResults.style.display = 'none';
+}
+
+// ===================================================================
+// 6. MODAL LOGIC (DETAILS, EDIT, DELETE)
+// ===================================================================
+
+function openDetailsModal(reservation, formattedHour) { 
+    DOM.detailsSubject.textContent = reservation.subject;
+    DOM.detailsRoom.textContent = reservation.room;
+    DOM.detailsSchedule.textContent = formattedHour;
+    DOM.detailsRequester.textContent = reservation.requester;
+    DOM.detailsEmail.textContent = reservation.email;
+    DOM.detailsParticipants.textContent = reservation.participants;
+    DOM.detailsEventType.textContent = reservation.eventType;
+
+    const emails = reservation.participantsEmails || "";
+    if (emails.trim() !== "") {
+        DOM.detailsParticipantsEmails.innerHTML = emails.replace(/;/g, '<br>');
+        DOM.detailsParticipantsEmails.parentElement.style.display = 'block';
+        DOM.detailsParticipantsEmails.style.display = 'block';
+    } else {
+        DOM.detailsParticipantsEmails.innerHTML = "No additional participants.";
+    }
+
+    if (reservation.details && reservation.details.trim() !== "") {
+        DOM.detailsDetails.textContent = reservation.details;
+        DOM.detailsDetails.parentElement.style.display = 'block'; 
+    } else {
+        DOM.detailsDetails.textContent = "No details provided.";
+    }
+
+    DOM.modalDetails.dataset.id = reservation.id;
+    DOM.modalDetails.dataset.reservation = JSON.stringify(reservation);
+    DOM.modalDetails.classList.add('modal-open');
+}
+
+function closeDetailsModal() { 
+    DOM.modalDetails.classList.remove('modal-open');
+}
+
+function handleEditClick() { 
+    const id = DOM.modalDetails.dataset.id;
+    const reservation = JSON.parse(DOM.modalDetails.dataset.reservation);
+    
+    closeDetailsModal();
+    openModal();
+    
+    DOM.modalReservationId.value = id;
+    DOM.modalEmail.value = reservation.email;
+    DOM.requesterSearch.value = reservation.requester;
+    DOM.requesterHidden.value = reservation.requester;
+    const emails = reservation.participantsEmails || "";
+    if (emails) {
+      currentParticipants = emails.split(';');
+    } else {
+      currentParticipants = [];
+    }
+    renderParticipantPills();
+    DOM.modalForm['modal-subject'].value = reservation.subject;
+    DOM.modalForm['modal-room'].value = reservation.room;
+    DOM.modalForm['modal-participants'].value = reservation.participants;
+    DOM.modalForm['modal-event-type'].value = reservation.eventType;
+    
+    const start = new Date(reservation.startISO);
+    DOM.modalForm['modal-date'].value = getLocalISODate(start);
+    DOM.modalForm['modal-start-time'].value = start.toTimeString().slice(0, 5);
+    
+    const end = new Date(reservation.endISO);
+    DOM.modalForm['modal-end-time'].value = end.toTimeString().slice(0, 5);
+
+    DOM.modalForm['modal-details'].value = reservation.details;
+}
+
+function handleDeleteClick() { 
+    const id = parseInt(DOM.modalDetails.dataset.id);
+    if (confirm("Are you sure you want to delete this reservation? This action cannot be undone.")) {
+        closeDetailsModal();
+        showLoading(DOM.gridContainer);
+        google.script.run
+            .withSuccessHandler(message => {
+                showGridSuccess(message); 
+                setTimeout(() => { loadData(); }, 2000); 
+            })
+            .withFailureHandler(error => {
+                showError(DOM.gridContainer, error.message);
+                setTimeout(() => { loadData(); }, 3000);
+            })
+            .deleteReserva(id);
+    }
+}
+
+// ===================================================================
+// 7. UTILITY FUNCTIONS
+// ===================================================================
+
+function changeDay(days) { 
+    let newDate;
+    if (days === 0) { newDate = new Date(); }
+    else {
+        const currentDate = new Date(DOM.datePicker.value + "T12:00:00");
+        currentDate.setDate(currentDate.getDate() + days);
+        newDate = currentDate;
+    }
+    DOM.datePicker.value = getLocalISODate(newDate);
+
+    if (miniCalendarInstance) {
+        miniCalendarInstance.setDate(DOM.datePicker.value, false);
+    }
+
+    loadData();
+}
+
+function getLocalISODate(date) { 
+    const tzoffset = date.getTimezoneOffset() * 60000;
+    const localISOTime = (new Date(date - tzoffset)).toISOString().slice(0, 10);
+    return localISOTime;
+}
+
+function getSelectedRooms() { 
+    const checkedBoxes = DOM.roomList.querySelectorAll('input[type="checkbox"]:checked');
+    return Array.from(checkedBoxes).map(cb => cb.value);
+}
+
+function calculatePixelOffset(isoString) {
+    const date = new Date(isoString);
+    const minutesFromStart = (date.getHours() - START_HOUR) * 60 + date.getMinutes();
+    return minutesFromStart * PIXELS_PER_MINUTE;
+}
+
+function calculatePixelWidth(startIso, endIso) {
+    const start = new Date(startIso);
+    const end = new Date(endIso);
+    const durationInMinutes = (end.getTime() - start.getTime()) / 60000;
+    
+    return durationInMinutes * PIXELS_PER_MINUTE;
+}
+
+function updateCurrentTimeLine() {
+    const now = new Date();
+    DOM.currentTimeLine.style.display = 'block';
+    
+    const offset = calculatePixelOffset(now.toISOString());
+    DOM.currentTimeLine.style.left = `${offset + SIDEBAR_WIDTH}px`;
+}
+
+function showLoading(element) { 
+    element.innerHTML = '<div class="loading-spinner">Loading...</div>';
+}
+
+function showError(element, error) { 
+    console.error(error);
+    element.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+}
+
+function showGridSuccess(message) { 
+    DOM.gridContainer.innerHTML = `<div class="grid-status-message grid-status-success">${message}</div>`;
+}
+
+function showModalStatus(message, type = 'loading') { 
+    if (!message) {
+        DOM.modalStatus.style.display = 'none';
+        return;
+    }
+    DOM.modalStatus.innerHTML = message;
+    DOM.modalStatus.style.display = 'block';
+    DOM.modalStatus.className = `modal-status-message modal-status-${type}`;
+}
+
+function handleFilterClear() { 
+    DOM.filterSubject.value = "";
+    DOM.filterUser.value = "";
+    loadData();
+}
+
+</script>
